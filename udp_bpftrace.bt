@@ -1,0 +1,18 @@
+#!/snap/bin/bpftrace
+
+#include <net/sock.h>
+
+kprobe:udp_sendmsg
+{
+	printf("got an udp packet\n");
+	$sk = (struct sock *)arg0;
+	$mh = (struct msghdr *)arg1;
+	$saddr = ntop(AF_INET, $sk->__sk_common.skc_rcv_saddr);
+	$daddr = ntop(AF_INET, $sk->__sk_common.skc_daddr);
+	printf("%-15s %-15s\n", $saddr, $daddr);
+	printf("%d\n", $mh->msg_namelen);
+	$sa = (struct sockaddr_in*)($mh->msg_name);
+	printf("%u\n", $sa->sin_port);
+	$daddr2 = ntop(AF_INET, $sa->sin_addr);
+	printf("%-15s\n", $daddr2);
+}
