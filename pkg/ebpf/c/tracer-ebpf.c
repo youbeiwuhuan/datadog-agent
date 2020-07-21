@@ -45,6 +45,12 @@
 #define log_debug(fmt, ...)
 #endif
 
+#define log_info(fmt, ...)                                        \
+    ({                                                             \
+        char ____fmt[] = fmt;                                      \
+        bpf_trace_printk(____fmt, sizeof(____fmt), ##__VA_ARGS__); \
+    })
+
 /* This is a key/value store with the keys being a conn_tuple_t for send & recv calls
  * and the values being conn_stats_ts_t *.
  */
@@ -386,6 +392,10 @@ static int read_conn_tuple(conn_tuple_t* t, tracer_status_t* status, struct sock
 
         if (!t->saddr_l || !t->daddr_l) {
             log_debug("ERR(read_conn_tuple.v4): src/dst addr not set src:%d,dst:%d\n", t->saddr_l, t->daddr_l);
+            if (!t->saddr_l)
+                log_info("ERR(read_conn_tuple.v4): src addr not set src:\n", t->saddr_l);
+            if (!t->daddr_l)
+                log_info("ERR(read_conn_tuple.v4): dst addr not set dst:\n", t->daddr_l);
             return 0;
         }
     } else if (is_ipv6_enabled(status) && check_family(skp, status, AF_INET6)) {
@@ -426,6 +436,7 @@ static int read_conn_tuple(conn_tuple_t* t, tracer_status_t* status, struct sock
 
     if (t->sport == 0 || t->dport == 0) {
         log_debug("ERR(read_conn_tuple.v4): src/dst port not set: src:%d, dst:%d\n", t->sport, t->dport);
+        log_info("ERR(read_conn_tuple.v4): src/dst port not set: src:%d, dst:%d\n", t->sport, t->dport);
         return 0;
     }
 
@@ -810,11 +821,41 @@ int kprobe__udp_sendmsg(struct pt_regs* ctx) {
 
     tracer_status_t* status = bpf_map_lookup_elem(&tracer_status, &zero);
     if (status == NULL) {
+        log_info("status is NULL\n");
         return 0;
     }
 
     conn_tuple_t t = {};
     if (!read_conn_tuple(&t, status, sk, pid_tgid, CONN_TYPE_UDP)) {
+        log_info("read conn tuple is null\n");
+        struct msghdr* mh = (struct msghdr*)PT_REGS_PARM2(ctx);
+        struct msghdr mhdr;
+
+        // Read the header from kernel into userspace
+        bpf_probe_read((void*)&mhdr, sizeof(mhdr), (void*)mh);
+        struct sockaddr_in addr;
+
+        // read destination address information
+        bpf_probe_read((void*)&addr, sizeof(addr), (void*)(mhdr.msg_name));
+        if (ntohs(addr.sin_port) != 53) {
+            return 0;
+        }
+        log_info("Port: %u\n",ntohs(addr.sin_port));
+
+        // Print the IP
+        int i = 0;
+        uint32_t daddr = (uint32_t)(addr.sin_addr.s_addr);
+        for (i = 0; i < 4; i++) {
+            unsigned char x = 255;
+            x = x & daddr;
+            daddr = daddr >> 8;
+            log_info("%u\n", x);
+        }
+        size_t mlen = (size_t)mhdr.msg_controllen;
+        // If mlen was not zero then we could have followed the example of this link
+        // https://stackoverflow.com/a/3929208
+        log_info("%d\n", mlen);
+        log_info("%d\n", sizeof(struct cmsghdr));
         return 0;
     }
 

@@ -4,6 +4,7 @@ package network
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/DataDog/datadog-agent/pkg/process/util"
 	"github.com/google/gopacket"
@@ -117,7 +118,12 @@ func (p *dnsParser) ParseInto(data []byte, t *translation, pktInfo *dnsPacketInf
 		}
 	}
 
+	ts := "Response"
+	if pktInfo.pktType == Query {
+		ts = "Query"
+	}
 	pktInfo.transactionID = p.dnsPayload.ID
+	fmt.Println(ts, pktInfo.key.clientIP, pktInfo.key.serverIP)
 	return nil
 }
 
