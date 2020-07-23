@@ -9,7 +9,6 @@ package checks
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -71,8 +70,8 @@ func WithHostname(hostname string) BuilderOption {
 func WithHostRootMount(hostRootMount string) BuilderOption {
 	return func(b *builder) error {
 		log.Infof("Host root filesystem will be remapped to %s", hostRootMount)
-		b.pathMapper = func(path string) string {
-			return filepath.Join(hostRootMount, path)
+		b.pathMapper = &pathMapper{
+			hostMountPath: hostRootMount,
 		}
 		return nil
 	}
@@ -192,8 +191,6 @@ func NewBuilder(reporter event.Reporter, options ...BuilderOption) (Builder, err
 	return b, nil
 }
 
-type pathMapper func(string) string
-
 type builder struct {
 	checkInterval time.Duration
 
@@ -201,7 +198,7 @@ type builder struct {
 	valueCache *cache.Cache
 
 	hostname     string
-	pathMapper   pathMapper
+	pathMapper   *pathMapper
 	etcGroupPath string
 
 	suiteMatcher SuiteMatcher
@@ -245,19 +242,25 @@ func (b *builder) ChecksFromFile(file string, onCheck compliance.CheckVisitor) e
 			continue
 		}
 
+		if len(r.Resources) == 0 {
+			log.Debugf("%s/%s: skipping rule %s - no configured resources", suite.Meta.Name, suite.Meta.Version, r.ID)
+			continue
+		}
+
 		log.Debugf("%s/%s: loading rule %s", suite.Meta.Name, suite.Meta.Version, r.ID)
 		check, err := b.CheckFromRule(&suite.Meta, &r)
 
 		if err != nil {
-			if err == ErrRuleDoesNotApply {
-				continue
+			if err != ErrRuleDoesNotApply {
+				log.Warnf("%s/%s: failed to load rule %s: %v", suite.Meta.Name, suite.Meta.Version, r.ID, err)
 			}
-			return err
+			continue
 		}
 
 		log.Debugf("%s/%s: init check %s", suite.Meta.Name, suite.Meta.Version, check.ID())
 		err = onCheck(check)
 		if err != nil {
+			log.Errorf("%s/%s: onCheck failed %s", suite.Meta.Name, suite.Meta.Version, check.ID())
 			return err
 		}
 	}
@@ -298,7 +301,18 @@ func (b *builder) getRuleScope(meta *compliance.SuiteMeta, rule *compliance.Rule
 }
 
 func (b *builder) hostMatcher(scope string, rule *compliance.Rule) (bool, error) {
-	if scope == compliance.KubernetesNodeScope {
+	switch scope {
+	case compliance.DockerScope:
+		if b.dockerClient == nil {
+			log.Infof("rule %s skipped - not running in a docker environment", rule.ID)
+			return false, nil
+		}
+	case compliance.KubernetesClusterScope:
+		if b.kubeClient == nil {
+			log.Infof("rule %s skipped - not running as Cluster Agent", rule.ID)
+			return false, nil
+		}
+	case compliance.KubernetesNodeScope:
 		if config.IsKubernetes() {
 			labels, err := hostinfo.GetNodeLabels()
 			if err != nil {
@@ -307,8 +321,7 @@ func (b *builder) hostMatcher(scope string, rule *compliance.Rule) (bool, error)
 
 			return b.isKubernetesNodeEligible(rule.HostSelector, labels), nil
 		}
-
-		log.Infof("rule %s discarded as we're not running on a Kubernetes node", rule.ID)
+		log.Infof("rule %s skipped - not running on a Kubernetes node", rule.ID)
 		return false, nil
 	}
 
@@ -402,11 +415,18 @@ func (b *builder) EtcGroupPath() string {
 	return b.etcGroupPath
 }
 
-func (b *builder) NormalizePath(path string) string {
+func (b *builder) NormalizeToHostRoot(path string) string {
 	if b.pathMapper == nil {
 		return path
 	}
-	return b.pathMapper(path)
+	return b.pathMapper.normalizeToHostRoot(path)
+}
+
+func (b *builder) RelativeToHostRoot(path string) string {
+	if b.pathMapper == nil {
+		return path
+	}
+	return b.pathMapper.relativeToHostRoot(path)
 }
 
 func (b *builder) EvaluateFromCache(ev eval.Evaluatable) (interface{}, error) {
@@ -564,7 +584,7 @@ func (b *builder) evalValueFromFile(get getter) eval.Function {
 			return nil, fmt.Errorf(`expecting string value for path argument`)
 		}
 
-		path = b.NormalizePath(path)
+		path = b.NormalizeToHostRoot(path)
 
 		query, ok := args[1].(string)
 		if !ok {

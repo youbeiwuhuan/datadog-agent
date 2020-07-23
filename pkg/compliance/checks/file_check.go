@@ -8,6 +8,7 @@ package checks
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/DataDog/datadog-agent/pkg/compliance"
 	"github.com/DataDog/datadog-agent/pkg/compliance/checks/env"
@@ -39,37 +40,38 @@ func checkFile(e env.Env, ruleID string, res compliance.Resource, expr *eval.Ite
 
 	file := res.File
 
-	log.Debugf("%s: running file check: %v", ruleID, file)
+	log.Debugf("%s: running file check for %q", ruleID, file.Path)
 
 	path, err := resolvePath(e, file.Path)
 	if err != nil {
 		return nil, err
 	}
 
-	paths := []string{
-		path,
+	paths, err := filepath.Glob(e.NormalizeToHostRoot(path))
+	if err != nil {
+		return nil, err
 	}
 
 	var instances []*eval.Instance
 
 	for _, path := range paths {
-		normalizedPath := e.NormalizePath(path)
-
-		fi, err := os.Stat(normalizedPath)
+		// Re-computing relative after glob filtering
+		relPath := e.RelativeToHostRoot(path)
+		fi, err := os.Stat(path)
 		if err != nil {
 			// This is not a failure unless we don't have any paths to act on
-			log.Debugf("%s: file check failed to stat %s", ruleID, path)
+			log.Debugf("%s: file check failed to stat %s [%s]", ruleID, path, relPath)
 			continue
 		}
 
 		instance := &eval.Instance{
 			Vars: eval.VarMap{
-				fileFieldPath:        path,
+				fileFieldPath:        relPath,
 				fileFieldPermissions: uint64(fi.Mode() & os.ModePerm),
 			},
 			Functions: eval.FunctionMap{
-				fileFuncJQ:   fileJQ(normalizedPath),
-				fileFuncYAML: fileYAML(normalizedPath),
+				fileFuncJQ:   fileJQ(path),
+				fileFuncYAML: fileYAML(path),
 			},
 		}
 
@@ -87,7 +89,7 @@ func checkFile(e env.Env, ruleID string, res compliance.Resource, expr *eval.Ite
 	}
 
 	if len(instances) == 0 {
-		return nil, fmt.Errorf("no files found for file check")
+		return nil, fmt.Errorf("no files found for file check %q", file.Path)
 	}
 
 	it := &instanceIterator{
