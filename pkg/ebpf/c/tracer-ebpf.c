@@ -1219,6 +1219,11 @@ int socket__dns_filter(struct __sk_buff* skb) {
     return -1;
 }
 
+SEC("kprobe/udp_send_skb.isra.0")
+int kprobe__udp_send_skb(struct pt_regs* ctx) {
+    return 0;
+}
+
 // This number will be interpreted by gobpf-elf-loader to set the current running kernel version
 __u32 _version SEC("version") = 0xFFFFFFFE;
 
