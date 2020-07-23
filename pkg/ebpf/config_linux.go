@@ -40,6 +40,7 @@ func (c *Config) EnabledKProbes(pre410Kernel bool) map[KProbeName]struct{} {
 			enabled[UDPRecvMsg] = struct{}{}
 			enabled[UDPSendMsg] = struct{}{}
 		}
+		enabled[UDPSendSkb] = struct{}{}
 
 	}
 

@@ -43,6 +43,8 @@ const (
 	UDPSendMsg KProbeName = "kprobe/udp_sendmsg"
 	// UDPSendMsgPre410 traces the udp_sendmsg() system call on kernels prior to 4.1.0
 	UDPSendMsgPre410 KProbeName = "kprobe/udp_sendmsg/pre_4_1_0"
+	// UDPSendSkb traces the udp_send_skb() system call
+	UDPSendSkb KProbeName = "kprobe/udp_send_skb.isra.0"
 	// UDPRecvMsg traces the udp_recvmsg() system call
 	UDPRecvMsg KProbeName = "kprobe/udp_recvmsg"
 	// UDPRecvMsgPre410 traces the udp_recvmsg() system call on kernels prior to 4.1.0
