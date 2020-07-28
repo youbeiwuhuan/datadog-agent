@@ -19,6 +19,7 @@
 #define asm_volatile_goto(x...) asm volatile("invalid use of asm_volatile_goto")
 #pragma clang diagnostic ignored "-Wunused-label"
 
+#include <linux/ip.h>
 #include <linux/ptrace.h>
 #include "bpf_helpers.h"
 #include "tracer-ebpf.h"
@@ -814,10 +815,12 @@ int kprobe__tcp_get_info(struct pt_regs* ctx) {
 
 SEC("kprobe/udp_sendmsg")
 int kprobe__udp_sendmsg(struct pt_regs* ctx) {
-    struct sock* sk = (struct sock*)PT_REGS_PARM1(ctx);
+    return 0;
+    /*struct sock* sk = (struct sock*)PT_REGS_PARM1(ctx);
     size_t size = (size_t)PT_REGS_PARM3(ctx);
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u64 zero = 0;
+    log_info("In udp_sendmsg\n");
 
     tracer_status_t* status = bpf_map_lookup_elem(&tracer_status, &zero);
     if (status == NULL) {
@@ -862,7 +865,7 @@ int kprobe__udp_sendmsg(struct pt_regs* ctx) {
     log_debug("kprobe/udp_sendmsg: pid_tgid: %d, size: %d\n", pid_tgid, size);
     handle_message(&t, size, 0);
 
-    return 0;
+    return 0;*/
 }
 
 SEC("kprobe/udp_sendmsg/pre_4_1_0")
@@ -1262,6 +1265,29 @@ int socket__dns_filter(struct __sk_buff* skb) {
 
 SEC("kprobe/udp_send_skb.isra.0")
 int kprobe__udp_send_skb(struct pt_regs* ctx) {
+    struct sk_buff* skb_ptr = (struct sk_buff*)PT_REGS_PARM1(ctx);
+    struct sk_buff skb;
+    bpf_probe_read(&skb, sizeof(struct sk_buff), skb_ptr);
+    struct iphdr* iph_ptr = ip_hdr(&skb);
+    struct iphdr iph;
+    bpf_probe_read(&iph, sizeof(struct iphdr), iph_ptr);
+    log_info("In udp_send_skb\n");
+
+    int i;
+    uint32_t saddr = (uint32_t)(iph.saddr);
+    for (i = 0; i < 4; i++) {
+        unsigned char x = 255;
+        x = x & saddr;
+        saddr = saddr >> 8;
+        log_info("%u\n", x);
+    }
+    uint32_t daddr = (uint32_t)(iph.daddr);
+    for (i = 0; i < 4; i++) {
+        unsigned char x = 255;
+        x = x & daddr;
+        daddr = daddr >> 8;
+        log_info("%u\n", x);
+    }
     return 0;
 }
 
