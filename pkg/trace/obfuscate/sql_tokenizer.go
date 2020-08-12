@@ -58,6 +58,7 @@ const (
 	Insert
 	Into
 	Join
+	Table
 
 	// FilteredGroupable specifies that the given token has been discarded by one of the
 	// token filters and that it is groupable together with consecutive FilteredGroupable
