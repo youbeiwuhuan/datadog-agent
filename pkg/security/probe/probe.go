@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/DataDog/datadog-go/statsd"
-	"github.com/iovisor/gobpf/elf"
 
 	"github.com/DataDog/datadog-agent/pkg/ebpf/bytecode"
 	"github.com/DataDog/datadog-agent/pkg/security/config"
@@ -79,24 +78,47 @@ type HookPoint struct {
 
 // cache of the syscall prefix depending on kernel version
 var syscallPrefix string
+var compatSyscallPrefix string
 
 func getSyscallFnName(name string) string {
 	if syscallPrefix == "" {
-		syscall, err := elf.GetSyscallFnName("open")
+		syscall, err := ebpf.GetSyscallFnName("open")
 		if err != nil {
 			panic(err)
 		}
 		syscallPrefix = strings.TrimSuffix(syscall, "open")
+
+		compatSyscallPrefix = "__ia32_compat_sys_"
 	}
 
 	return syscallPrefix + name
 }
 
-func syscallKprobe(name string) []*ebpf.KProbe {
-	return []*ebpf.KProbe{{
-		EntryFunc: "kprobe/" + getSyscallFnName(name),
-		ExitFunc:  "kretprobe/" + getSyscallFnName(name),
-	}}
+func syscallKprobe(name string, compat ...bool) []*ebpf.KProbe {
+	kprobes := []*ebpf.KProbe{
+		{
+			Name:      getSyscallFnName(name),
+			EntryFunc: "kprobe/" + getSyscallFnName(name),
+			ExitFunc:  "kretprobe/" + getSyscallFnName(name),
+		},
+	}
+
+	if ebpf.RuntimeArch == "x64" && syscallPrefix != "SyS_" {
+		if len(compat) > 0 {
+			kprobes = append(kprobes, &ebpf.KProbe{
+				EntryFunc: "kprobe/" + compatSyscallPrefix + name,
+				ExitFunc:  "kretprobe/" + compatSyscallPrefix + name,
+			})
+		} else {
+			kprobes = append(kprobes, &ebpf.KProbe{
+				Name:      "__ia32_sys_" + name,
+				EntryFunc: "kprobe/__ia32_sys_" + name,
+				ExitFunc:  "kretprobe/__ia32_sys_" + name,
+			})
+		}
+	}
+
+	return kprobes
 }
 
 var allHookPoints = []*HookPoint{
@@ -133,15 +155,22 @@ var allHookPoints = []*HookPoint{
 		},
 	},
 	{
-		Name:    "sys_chown",
-		KProbes: syscallKprobe("chown"),
+		Name:    "sys_lchown",
+		KProbes: append(syscallKprobe("lchown"), syscallKprobe("lchown16")...),
 		EventTypes: map[eval.EventType]Capabilities{
 			"chown": {},
 		},
 	},
 	{
 		Name:    "sys_fchown",
-		KProbes: syscallKprobe("fchown"),
+		KProbes: append(syscallKprobe("fchown"), syscallKprobe("fchown16")...),
+		EventTypes: map[eval.EventType]Capabilities{
+			"chown": {},
+		},
+	},
+	{
+		Name:    "sys_chown",
+		KProbes: append(syscallKprobe("chown"), syscallKprobe("chown16")...),
 		EventTypes: map[eval.EventType]Capabilities{
 			"chown": {},
 		},
@@ -149,13 +178,6 @@ var allHookPoints = []*HookPoint{
 	{
 		Name:    "sys_fchownat",
 		KProbes: syscallKprobe("fchownat"),
-		EventTypes: map[eval.EventType]Capabilities{
-			"chown": {},
-		},
-	},
-	{
-		Name:    "sys_lchown",
-		KProbes: syscallKprobe("lchown"),
 		EventTypes: map[eval.EventType]Capabilities{
 			"chown": {},
 		},

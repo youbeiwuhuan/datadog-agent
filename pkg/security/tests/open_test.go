@@ -35,25 +35,57 @@ func TestOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fd, _, errno := syscall.Syscall(syscall.SYS_OPENAT, 0, uintptr(testFilePtr), syscall.O_CREAT)
-	if errno != 0 {
-		t.Fatal(error(errno))
-	}
-	defer syscall.Close(int(fd))
-	defer os.Remove(testFile)
-
-	event, _, err := test.GetEvent()
-	if err != nil {
-		t.Error(err)
-	} else {
-		if event.GetType() != "open" {
-			t.Errorf("expected open event, got %s", event.GetType())
+	t.Run("open", func(t *testing.T) {
+		fd, _, errno := syscall.Syscall(syscall.SYS_OPEN, uintptr(testFilePtr), syscall.O_CREAT, 0755)
+		if errno != 0 {
+			t.Fatal(error(errno))
 		}
+		defer syscall.Close(int(fd))
+		defer os.Remove(testFile)
 
-		if flags := event.Open.Flags; flags != syscall.O_CREAT {
-			t.Errorf("expected open mode O_CREAT, got %d", flags)
+		event, _, err := test.GetEvent()
+		if err != nil {
+			t.Error(err)
+		} else {
+			if event.GetType() != "open" {
+				t.Errorf("expected open event, got %s", event.GetType())
+			}
+
+			if flags := event.Open.Flags; flags != syscall.O_CREAT {
+				t.Errorf("expected open flag O_CREAT, got %d", flags)
+			}
+
+			if mode := event.Open.Mode; mode != 0755 {
+				t.Errorf("expected open mode 0755, got %#o", mode)
+			}
 		}
-	}
+	})
+
+	t.Run("openat", func(t *testing.T) {
+		fd, _, errno := syscall.Syscall6(syscall.SYS_OPENAT, 0, uintptr(testFilePtr), syscall.O_CREAT, 0711, 0, 0)
+		if errno != 0 {
+			t.Fatal(error(errno))
+		}
+		defer syscall.Close(int(fd))
+		defer os.Remove(testFile)
+
+		event, _, err := test.GetEvent()
+		if err != nil {
+			t.Error(err)
+		} else {
+			if event.GetType() != "open" {
+				t.Errorf("expected open event, got %s", event.GetType())
+			}
+
+			if flags := event.Open.Flags; flags != syscall.O_CREAT {
+				t.Errorf("expected open mode O_CREAT, got %d", flags)
+			}
+
+			if mode := event.Open.Mode; mode != 0711 {
+				t.Errorf("expected open mode 0711, got %#o", mode)
+			}
+		}
+	})
 }
 
 func benchmarkOpenSameFile(b *testing.B, enableFilters bool, rules ...*policy.RuleDefinition) {

@@ -31,14 +31,14 @@ var openTables = []string{
 var openHookPoints = []*HookPoint{
 	{
 		Name:    "sys_open",
-		KProbes: syscallKprobe("open"),
+		KProbes: syscallKprobe("open", true),
 		EventTypes: map[string]Capabilities{
 			"open": {},
 		},
 	},
 	{
 		Name:    "sys_openat",
-		KProbes: syscallKprobe("openat"),
+		KProbes: syscallKprobe("openat", true),
 		EventTypes: map[string]Capabilities{
 			"open": {},
 		},

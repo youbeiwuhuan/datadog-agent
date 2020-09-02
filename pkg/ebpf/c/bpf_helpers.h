@@ -134,6 +134,25 @@ static int (*bpf_l4_csum_replace)(void* ctx, int off, int from, int to, int flag
 
 #endif
 
+#define X64_PT_REGS_PARM1(x) ((x)->di)
+#define X64_PT_REGS_PARM2(x) ((x)->si)
+#define X64_PT_REGS_PARM3(x) ((x)->dx)
+#define X64_PT_REGS_PARM4(x) ((x)->r10)
+#define X64_PT_REGS_PARM5(x) ((x)->r8)
+#define X64_PT_REGS_RET(x) ((x)->sp)
+#define X64_PT_REGS_FP(x) ((x)->bp)
+#define X64_PT_REGS_RC(x) ((x)->ax)
+#define X64_PT_REGS_SP(x) ((x)->sp)
+#define X64_PT_REGS_IP(x) ((x)->ip)
+
+#define IA32_PT_REGS_PARM1(x) ((x)->bx)
+#define IA32_PT_REGS_PARM2(x) ((x)->cx)
+#define IA32_PT_REGS_PARM3(x) ((x)->dx)
+#define IA32_PT_REGS_PARM4(x) ((x)->si)
+#define IA32_PT_REGS_PARM5(x) ((x)->di)
+#define IA32_PT_REGS_PARM6(x) ((x)->bp)
+#define IA32_PT_REGS_RET(x) ((x)->sp)
+
 #ifdef __powerpc__
 #define BPF_KPROBE_READ_RET_IP(ip, ctx) ({ (ip) = (ctx)->link; })
 #define BPF_KRETPROBE_READ_RET_IP BPF_KPROBE_READ_RET_IP

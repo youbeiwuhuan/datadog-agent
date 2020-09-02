@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -238,7 +239,9 @@ func NewModule(cfg *aconfig.AgentConfig) (api.Module, error) {
 	}
 
 	var statsdClient *statsd.Client
-	if cfg != nil {
+	// statsd segfaults on 386 because of atomic primitive usage with wrong alignment
+	// https://github.com/golang/go/issues/37262
+	if runtime.GOARCH != "386" && cfg != nil {
 		statsdAddr := os.Getenv("STATSD_URL")
 		if statsdAddr == "" {
 			statsdAddr = fmt.Sprintf("%s:%d", cfg.StatsdHost, cfg.StatsdPort)

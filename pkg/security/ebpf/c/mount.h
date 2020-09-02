@@ -20,14 +20,12 @@ struct mount_event_t {
     char fstype[FSTYPE_LEN];
 };
 
-SYSCALL_KPROBE(mount) {
-    struct syscall_cache_t syscall = {};
-#if USE_SYSCALL_WRAPPER
-    ctx = (struct pt_regs *) PT_REGS_PARM1(ctx);
-    bpf_probe_read(&syscall.mount.fstype, sizeof(void *), &PT_REGS_PARM3(ctx));
-#else
-    syscall.mount.fstype = (void *)PT_REGS_PARM3(ctx);
-#endif
+SYSCALL_KPROBE3(mount, const char*, source, const char*, target, const char*, fstype) {
+    struct syscall_cache_t syscall = {
+        .mount = {
+            .fstype = fstype
+        }
+    };
     cache_syscall(&syscall);
     return 0;
 }
@@ -93,7 +91,7 @@ SYSCALL_KRETPROBE(mount) {
         .root_ino = syscall->mount.root_key.ino,
         .root_mount_id = syscall->mount.root_key.mount_id,
     };
-    bpf_probe_read_str(&event.fstype, FSTYPE_LEN, syscall->mount.fstype);
+    bpf_probe_read_str(&event.fstype, FSTYPE_LEN, (void*) syscall->mount.fstype);
 
     if (event.new_mount_id == 0 && event.new_device == 0) {
         return 0;

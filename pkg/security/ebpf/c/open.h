@@ -1,6 +1,6 @@
 #ifndef _OPEN_H_
 #define _OPEN_H_
-
+#include "defs.h"
 #include "filters.h"
 #include "syscalls.h"
 #include "process.h"
@@ -92,31 +92,11 @@ int __attribute__((always_inline)) trace__sys_openat(int flags, umode_t mode) {
     return 0;
 }
 
-SYSCALL_KPROBE(open) {
-    int flags;
-    umode_t mode;
-#if USE_SYSCALL_WRAPPER
-    ctx = (struct pt_regs *) PT_REGS_PARM1(ctx);
-    bpf_probe_read(&flags, sizeof(flags), &PT_REGS_PARM2(ctx));
-    bpf_probe_read(&mode, sizeof(mode), &PT_REGS_PARM3(ctx));
-#else
-    flags = (int) PT_REGS_PARM2(ctx);
-    mode = (umode_t) PT_REGS_PARM3(ctx);
-#endif
+SYSCALL_COMPAT_KPROBE3(open, const char*, filename, int, flags, umode_t, mode) {
     return trace__sys_openat(flags, mode);
 }
 
-SYSCALL_KPROBE(openat) {
-    int flags;
-    umode_t mode;
-#if USE_SYSCALL_WRAPPER
-    ctx = (struct pt_regs *) PT_REGS_PARM1(ctx);
-    bpf_probe_read(&flags, sizeof(flags), &PT_REGS_PARM3(ctx));
-    bpf_probe_read(&mode, sizeof(mode), &PT_REGS_PARM4(ctx));
-#else
-    flags = (int) PT_REGS_PARM3(ctx);
-    mode = (umode_t) PT_REGS_PARM4(ctx);
-#endif
+SYSCALL_COMPAT_KPROBE4(openat, int, dirfd, const char*, filename, int, flags, umode_t, mode) {
     return trace__sys_openat(flags, mode);
 }
 
@@ -273,11 +253,11 @@ int __attribute__((always_inline)) trace__sys_open_ret(struct pt_regs *ctx) {
     return 0;
 }
 
-SYSCALL_KRETPROBE(open) {
+SYSCALL_COMPAT_KRETPROBE(open) {
     return trace__sys_open_ret(ctx);
 }
 
-SYSCALL_KRETPROBE(openat) {
+SYSCALL_COMPAT_KRETPROBE(openat) {
     return trace__sys_open_ret(ctx);
 }
 

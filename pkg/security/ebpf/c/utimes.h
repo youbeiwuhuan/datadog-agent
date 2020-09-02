@@ -30,23 +30,23 @@ int __attribute__((always_inline)) trace__sys_utimes() {
     return 0;
 }
 
-SYSCALL_KPROBE(utime) {
+SYSCALL_KPROBE0(utime) {
     return trace__sys_utimes();
 }
 
-SYSCALL_KPROBE(utimes) {
+SYSCALL_KPROBE0(utimes) {
     return trace__sys_utimes();
 }
 
-SYSCALL_KPROBE(utimensat) {
+SYSCALL_KPROBE0(utimensat) {
     return trace__sys_utimes();
 }
 
-SYSCALL_KPROBE(utimesat) {
+SYSCALL_KPROBE0(utimesat) {
     return trace__sys_utimes();
 }
 
-SYSCALL_KPROBE(futimesat) {
+SYSCALL_KPROBE0(futimesat) {
     return trace__sys_utimes();
 }
 
