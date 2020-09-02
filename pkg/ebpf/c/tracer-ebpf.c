@@ -308,6 +308,11 @@ static __always_inline int read_conn_tuple(conn_tuple_t* t, struct sock* skp, u6
     t->pid = pid_tgid >> 32;
     t->metadata = type;
 
+    // Retrieve network namespace id
+    possible_net_t* skc_net = NULL;
+    bpf_probe_read(&skc_net, sizeof(void*), ((char*)skp) + offset_netns());
+    bpf_probe_read(&t->netns, sizeof(t->netns), ((char*)skc_net) + offset_ino());
+
     // Retrieve addresses
     if (check_family(skp, AF_INET)) {
         t->metadata |= CONN_V4;
@@ -364,9 +369,9 @@ static __always_inline int read_conn_tuple(conn_tuple_t* t, struct sock* skp, u6
     t->dport = ntohs(t->dport);
 
     // Retrieve network namespace id
-    possible_net_t* skc_net = NULL;
-    bpf_probe_read(&skc_net, sizeof(void*), ((char*)skp) + offset_netns());
-    bpf_probe_read(&t->netns, sizeof(t->netns), ((char*)skc_net) + offset_ino());
+    // possible_net_t* skc_net = NULL;
+    // bpf_probe_read(&skc_net, sizeof(void*), ((char*)skp) + offset_netns());
+    // bpf_probe_read(&t->netns, sizeof(t->netns), ((char*)skc_net) + offset_ino());
 
     return 1;
 }
@@ -666,10 +671,11 @@ int kprobe__udp_sendmsg(struct pt_regs* ctx) {
 
 SEC("kprobe/ip_make_skb")
 int kprobe__ip_make_skb(struct pt_regs* ctx) {
-    // log_info("In ip make skb\n");
     struct sock* sk = (struct sock*)PT_REGS_PARM1(ctx);
-    size_t size = (size_t)PT_REGS_PARM3(ctx);
+    size_t size = (size_t)PT_REGS_PARM5(ctx);
     u64 pid_tgid = bpf_get_current_pid_tgid();
+
+    size = size - sizeof(struct udphdr);
 
     conn_tuple_t t = {};
     if (!read_conn_tuple(&t, sk, pid_tgid, CONN_TYPE_UDP)) {
@@ -698,6 +704,7 @@ int kprobe__ip_make_skb(struct pt_regs* ctx) {
     }
 
     log_debug("kprobe/udp_sendmsg: pid_tgid: %d, size: %d\n", pid_tgid, size);
+    // log_info("kprobe/udp_sendmsg: pid_tgid: %d, size: %d\n", pid_tgid, size);
     handle_message(&t, size, 0);
     increment_telemetry_count(udp_send_processed);
 
