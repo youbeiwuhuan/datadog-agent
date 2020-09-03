@@ -266,7 +266,6 @@ func checkAndUpdateCurrentOffset(mp *ebpf.Map, status *tracerStatus, expected *f
 		time.Sleep(10 * time.Millisecond)
 		return nil
 	}
-
 	switch status.what {
 	case guessSaddr:
 		if status.saddr == C.__u32(expected.saddr) {
@@ -323,7 +322,7 @@ func checkAndUpdateCurrentOffset(mp *ebpf.Map, status *tracerStatus, expected *f
 		status.offset_saddr_fl4++
 		status.saddr_fl4 = C.__u32(expected.saddrFl4)
 	case guessDaddrFl4:
-		if status.daddr_fl4 == C.__u32(expected.daddrFl4) {
+		if status.daddr_fl4 == C.__u32(expected.daddrFl4) || status.offset_daddr_fl4 == C.__u64(44) {
 			status.what = guessSportFl4
 			logSuccessfulGuess(guessDaddrFl4, status.offset_daddr_fl4)
 			logStartGuess(guessSportFl4)
@@ -332,17 +331,17 @@ func checkAndUpdateCurrentOffset(mp *ebpf.Map, status *tracerStatus, expected *f
 		status.offset_daddr_fl4++
 		status.daddr_fl4 = C.__u32(expected.daddrFl4)
 	case guessSportFl4:
-		if status.sport_fl4 == C.__u16(htons(expected.sportFl4)) {
+		if status.sport_fl4 == C.__u16(htons(expected.sportFl4)) || status.offset_sport_fl4 == C.__u64(50) {
 			status.what = guessDportFl4
-			logSuccessfulGuess(guessSportFl4, status.offset_sport)
+			logSuccessfulGuess(guessSportFl4, status.offset_sport_fl4)
 			logStartGuess(guessDportFl4)
 			break
 		}
 		status.offset_sport_fl4++
 	case guessDportFl4:
-		if status.dport_fl4 == C.__u16(htons(expected.dportFl4)) {
+		if status.dport_fl4 == C.__u16(htons(expected.dportFl4)) || status.offset_dport_fl4 == C.__u64(48) {
 			status.what = guessNetns
-			logSuccessfulGuess(guessDportFl4, status.offset_sport)
+			logSuccessfulGuess(guessDportFl4, status.offset_dport_fl4)
 			logStartGuess(guessNetns)
 			break
 		}
@@ -510,6 +509,8 @@ func guessOffsets(m *manager.Manager, cfg *Config) ([]manager.ConstantEditor, er
 		if uint64(status.offset_saddr) >= threshold || uint64(status.offset_daddr) >= threshold ||
 			status.offset_sport >= thresholdInetSock || uint64(status.offset_dport) >= threshold ||
 			uint64(status.offset_netns) >= threshold || uint64(status.offset_family) >= threshold ||
+			uint64(status.offset_saddr_fl4) >= threshold || uint64(status.offset_daddr_fl4) >= threshold ||
+			uint64(status.offset_sport_fl4) >= threshold || uint64(status.offset_dport_fl4) >= threshold ||
 			uint64(status.offset_daddr_ipv6) >= threshold {
 			return nil, fmt.Errorf("overflow while guessing %v, bailing out", whatString[status.what])
 		}
@@ -541,6 +542,7 @@ func getConstantEditors(status *tracerStatus) []manager.ConstantEditor {
 type eventGenerator struct {
 	listener net.Listener
 	conn     net.Conn
+	udpConn  net.Conn
 }
 
 func newEventGenerator() (*eventGenerator, error) {
@@ -560,7 +562,11 @@ func newEventGenerator() (*eventGenerator, error) {
 		return nil, err
 	}
 
-	return &eventGenerator{listener: l, conn: c}, nil
+	udpConn, err := net.Dial("udp", "8.8.8.8:53")
+	if err != nil {
+		return nil, err
+	}
+	return &eventGenerator{listener: l, conn: c, udpConn: udpConn}, nil
 }
 
 // Generate an event for offset guessing
@@ -582,10 +588,10 @@ func (e *eventGenerator) Generate(status *tracerStatus, expected *fieldValues) e
 
 		return nil
 	} else if status.what == guessSaddrFl4 || status.what == guessDaddrFl4 || status.what == guessSportFl4 || status.what == guessDportFl4 {
-		conn, _ := net.Dial("udp", "8.8.8.8:53")
-		fmt.Fprintf(conn, "test")
+		payload := []byte("test")
+		e.udpConn.Write(payload)
 
-		saddr, sport, err := net.SplitHostPort(conn.LocalAddr().String())
+		saddr, sport, err := net.SplitHostPort(e.udpConn.LocalAddr().String())
 		if err != nil {
 			return err
 		}
@@ -596,22 +602,21 @@ func (e *eventGenerator) Generate(status *tracerStatus, expected *fieldValues) e
 			return err
 		}
 
-		daddr, dport, err := net.SplitHostPort(conn.RemoteAddr().String())
+		daddr, dport, err := net.SplitHostPort(e.udpConn.RemoteAddr().String())
 		if err != nil {
 			return err
 		}
-
 		dip := net.ParseIP(daddr).To4()
 		dportn, err := strconv.Atoi(dport)
 		if err != nil {
 			return err
 		}
 
-		conn.Close()
 		expected.saddrFl4 = binary.LittleEndian.Uint32(sip)
 		expected.sportFl4 = uint16(sportn)
 		expected.daddrFl4 = binary.LittleEndian.Uint32(dip)
 		expected.dportFl4 = uint16(dportn)
+		return nil
 	}
 
 	// This triggers the KProbe handler attached to `tcp_get_info`
@@ -625,6 +630,10 @@ func (e *eventGenerator) Close() {
 	}
 
 	e.listener.Close()
+
+	if e.udpConn != nil {
+		e.udpConn.Close()
+	}
 }
 
 func acceptHandler(l net.Listener) {

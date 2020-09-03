@@ -308,11 +308,6 @@ static __always_inline int read_conn_tuple(conn_tuple_t* t, struct sock* skp, u6
     t->pid = pid_tgid >> 32;
     t->metadata = type;
 
-    // Retrieve network namespace id
-    possible_net_t* skc_net = NULL;
-    bpf_probe_read(&skc_net, sizeof(void*), ((char*)skp) + offset_netns());
-    bpf_probe_read(&t->netns, sizeof(t->netns), ((char*)skc_net) + offset_ino());
-
     // Retrieve addresses
     if (check_family(skp, AF_INET)) {
         t->metadata |= CONN_V4;
@@ -369,9 +364,9 @@ static __always_inline int read_conn_tuple(conn_tuple_t* t, struct sock* skp, u6
     t->dport = ntohs(t->dport);
 
     // Retrieve network namespace id
-    // possible_net_t* skc_net = NULL;
-    // bpf_probe_read(&skc_net, sizeof(void*), ((char*)skp) + offset_netns());
-    // bpf_probe_read(&t->netns, sizeof(t->netns), ((char*)skc_net) + offset_ino());
+    possible_net_t* skc_net = NULL;
+    bpf_probe_read(&skc_net, sizeof(void*), ((char*)skp) + offset_netns());
+    bpf_probe_read(&t->netns, sizeof(t->netns), ((char*)skc_net) + offset_ino());
 
     return 1;
 }
