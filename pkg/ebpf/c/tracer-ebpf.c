@@ -677,7 +677,7 @@ int kprobe__ip6_make_skb(struct pt_regs* ctx) {
      handle_message(&t, size, 0);
      increment_telemetry_count(udp_send_processed);
 
-     return 0;   return 0;
+     return 0;
 }
 
 SEC("kprobe/ip_make_skb")
