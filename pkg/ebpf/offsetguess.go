@@ -63,10 +63,16 @@ const (
 	guessNetns             = 5
 	guessRTT               = 6
 	guessDaddrIPv6         = 7
-	guessSaddrFl4          = 8
-	guessDaddrFl4          = 9
-	guessSportFl4          = 10
-	guessDportFl4          = 11
+	// Following values are associated with an UDP connection, used for guessing offsets
+	// in the flowi4 data structure
+	guessSaddrFl4 = 8
+	guessDaddrFl4 = 9
+	guessSportFl4 = 10
+	guessDportFl4 = 11
+)
+
+const (
+	notApplicable = 99999 // An arbitrary large number to indicate that the value should be ignored
 )
 
 // These constants should be in sync with the equivalent definitions in the ebpf program.
@@ -84,10 +90,12 @@ var whatString = map[C.__u64]string{
 	guessNetns:     "network namespace",
 	guessRTT:       "Round Trip Time",
 	guessDaddrIPv6: "destination address IPv6",
-	guessSaddrFl4:  "source address flowi4",
-	guessDaddrFl4:  "destination address flowi4",
-	guessSportFl4:  "source port flowi4",
-	guessDportFl4:  "destination port flowi4",
+
+	// Guess offsets in struct flowi4
+	guessSaddrFl4: "source address flowi4",
+	guessDaddrFl4: "destination address flowi4",
+	guessSportFl4: "source port flowi4",
+	guessDportFl4: "destination port flowi4",
 }
 
 const (
@@ -114,36 +122,45 @@ type fieldValues struct {
 	rtt       uint32
 	rttVar    uint32
 	daddrIPv6 [4]uint32
-	saddrFl4  uint32
-	daddrFl4  uint32
-	sportFl4  uint16
-	dportFl4  uint16
+
+	// Used for guessing offsets in struct flowi4
+	saddrFl4 uint32
+	daddrFl4 uint32
+	sportFl4 uint16
+	dportFl4 uint16
+}
+
+func extractIPsAndPorts(conn net.Conn) (
+	saddr, daddr uint32,
+	sport, dport uint16,
+	err error,
+) {
+	saddr_s, sport_s, err := net.SplitHostPort(conn.LocalAddr().String())
+	if err != nil {
+		return
+	}
+	saddr = binary.LittleEndian.Uint32(net.ParseIP(saddr_s).To4())
+	sportn, err := strconv.Atoi(sport_s)
+	if err != nil {
+		return
+	}
+	sport = uint16(sportn)
+
+	daddr_s, dport_s, err := net.SplitHostPort(conn.RemoteAddr().String())
+	if err != nil {
+		return
+	}
+	daddr = binary.LittleEndian.Uint32(net.ParseIP(daddr_s).To4())
+	dportn, err := strconv.Atoi(dport_s)
+	if err != nil {
+		return
+	}
+	dport = uint16(dportn)
+	return
 }
 
 func expectedValues(conn net.Conn) (*fieldValues, error) {
 	netns, err := ownNetNS()
-	if err != nil {
-		return nil, err
-	}
-
-	saddr, sport, err := net.SplitHostPort(conn.LocalAddr().String())
-	if err != nil {
-		return nil, err
-	}
-
-	sip := net.ParseIP(saddr).To4()
-	sportn, err := strconv.Atoi(sport)
-	if err != nil {
-		return nil, err
-	}
-
-	daddr, dport, err := net.SplitHostPort(conn.RemoteAddr().String())
-	if err != nil {
-		return nil, err
-	}
-
-	dip := net.ParseIP(daddr).To4()
-	dportn, err := strconv.Atoi(dport)
 	if err != nil {
 		return nil, err
 	}
@@ -153,11 +170,16 @@ func expectedValues(conn net.Conn) (*fieldValues, error) {
 		return nil, err
 	}
 
+	saddr, daddr, sport, dport, err := extractIPsAndPorts(conn)
+	if err != nil {
+		return nil, err
+	}
+
 	return &fieldValues{
-		saddr:  binary.LittleEndian.Uint32(sip),
-		daddr:  binary.LittleEndian.Uint32(dip),
-		sport:  uint16(sportn),
-		dport:  uint16(dportn),
+		saddr:  saddr,
+		daddr:  daddr,
+		sport:  sport,
+		dport:  dport,
 		netns:  uint32(netns),
 		family: syscall.AF_INET,
 		rtt:    tcpInfo.Rtt,
@@ -269,88 +291,66 @@ func checkAndUpdateCurrentOffset(mp *ebpf.Map, status *tracerStatus, expected *f
 	switch status.what {
 	case guessSaddr:
 		if status.saddr == C.__u32(expected.saddr) {
-			status.what = guessDaddr
-			logSuccessfulGuess(guessSaddr, status.offset_saddr)
-			logStartGuess(guessDaddr)
+			logAndAdvance(status, status.offset_saddr, guessDaddr)
 			break
 		}
 		status.offset_saddr++
 		status.saddr = C.__u32(expected.saddr)
 	case guessDaddr:
 		if status.daddr == C.__u32(expected.daddr) {
-			status.what = guessFamily
-			logSuccessfulGuess(guessDaddr, status.offset_daddr)
-			logStartGuess(guessFamily)
+			logAndAdvance(status, status.offset_daddr, guessFamily)
 			break
 		}
 		status.offset_daddr++
 		status.daddr = C.__u32(expected.daddr)
 	case guessFamily:
 		if status.family == C.__u16(expected.family) {
-			status.what = guessSport
+			logAndAdvance(status, status.offset_family, guessSport)
 			// we know the sport ((struct inet_sock)->inet_sport) is
 			// after the family field, so we start from there
 			status.offset_sport = status.offset_family
-			logSuccessfulGuess(guessFamily, status.offset_family)
-			logStartGuess(guessSport)
 			break
 		}
 		status.offset_family++
 	case guessSport:
 		if status.sport == C.__u16(htons(expected.sport)) {
-			status.what = guessDport
-			logSuccessfulGuess(guessSport, status.offset_sport)
-			logStartGuess(guessDport)
+			logAndAdvance(status, status.offset_sport, guessDport)
 			break
 		}
 		status.offset_sport++
 	case guessDport:
 		if status.dport == C.__u16(htons(expected.dport)) {
-			status.what = guessSaddrFl4
-			logSuccessfulGuess(guessDport, status.offset_dport)
-			logStartGuess(guessSaddrFl4)
+			logAndAdvance(status, status.offset_dport, guessSaddrFl4)
 			break
 		}
 		status.offset_dport++
 	case guessSaddrFl4:
 		if status.saddr_fl4 == C.__u32(expected.saddrFl4) {
-			status.what = guessDaddrFl4
-			logSuccessfulGuess(guessSaddrFl4, status.offset_saddr_fl4)
-			logStartGuess(guessDaddrFl4)
+			logAndAdvance(status, status.offset_saddr_fl4, guessDaddrFl4)
 			break
 		}
 		status.offset_saddr_fl4++
-		status.saddr_fl4 = C.__u32(expected.saddrFl4)
 	case guessDaddrFl4:
-		if status.daddr_fl4 == C.__u32(expected.daddrFl4) || status.offset_daddr_fl4 == C.__u64(44) {
-			status.what = guessSportFl4
-			logSuccessfulGuess(guessDaddrFl4, status.offset_daddr_fl4)
-			logStartGuess(guessSportFl4)
+		if status.daddr_fl4 == C.__u32(expected.daddrFl4) {
+			logAndAdvance(status, status.offset_daddr_fl4, guessSportFl4)
 			break
 		}
 		status.offset_daddr_fl4++
-		status.daddr_fl4 = C.__u32(expected.daddrFl4)
 	case guessSportFl4:
-		if status.sport_fl4 == C.__u16(htons(expected.sportFl4)) || status.offset_sport_fl4 == C.__u64(50) {
-			status.what = guessDportFl4
-			logSuccessfulGuess(guessSportFl4, status.offset_sport_fl4)
-			logStartGuess(guessDportFl4)
+		if status.sport_fl4 == C.__u16(htons(expected.sportFl4)) {
+			logAndAdvance(status, status.offset_sport_fl4, guessDportFl4)
 			break
 		}
 		status.offset_sport_fl4++
 	case guessDportFl4:
-		if status.dport_fl4 == C.__u16(htons(expected.dportFl4)) || status.offset_dport_fl4 == C.__u64(48) {
-			status.what = guessNetns
-			logSuccessfulGuess(guessDportFl4, status.offset_dport_fl4)
-			logStartGuess(guessNetns)
+		if status.dport_fl4 == C.__u16(htons(expected.dportFl4)) {
+			logAndAdvance(status, status.offset_dport_fl4, guessNetns)
 			break
 		}
 		status.offset_dport_fl4++
 	case guessNetns:
 		if status.netns == C.__u32(expected.netns) {
-			status.what = guessRTT
-			logSuccessfulGuess(guessNetns, status.offset_netns)
-			logStartGuess(guessRTT)
+			logAndAdvance(status, status.offset_netns, guessRTT)
 			break
 		}
 		status.offset_ino++
@@ -363,9 +363,7 @@ func checkAndUpdateCurrentOffset(mp *ebpf.Map, status *tracerStatus, expected *f
 		// For more information on the bit shift operations see:
 		// https://elixir.bootlin.com/linux/v4.6/source/net/ipv4/tcp.c#L2686
 		if status.rtt>>3 == C.__u32(expected.rtt) && status.rtt_var>>2 == C.__u32(expected.rttVar) {
-			status.what = guessDaddrIPv6
-			logSuccessfulGuess(guessRTT, status.offset_rtt)
-			logStartGuess(guessDaddrIPv6)
+			logAndAdvance(status, status.offset_rtt, guessDaddrIPv6)
 			break
 		}
 		// We know that these two fields are always next to each other, 4 bytes apart:
@@ -378,15 +376,14 @@ func checkAndUpdateCurrentOffset(mp *ebpf.Map, status *tracerStatus, expected *f
 		// For now we'll tolerate the case where we can't find the offsets for RTT metrics
 		if status.offset_rtt > thresholdInetSock {
 			log.Warn("could not guess offsets for TCP RTT fields. moving on.")
-			status.what = guessDaddrIPv6
 			status.offset_rtt = 0
 			status.offset_rtt_var = 0
-			logStartGuess(guessDaddrIPv6)
+			logAndAdvance(status, notApplicable, guessDaddrIPv6)
 			break
 		}
 	case guessDaddrIPv6:
 		if compareIPv6(status.daddr_ipv6, expected.daddrIPv6) {
-			logSuccessfulGuess(guessDaddrIPv6, status.offset_daddr_ipv6)
+			logAndAdvance(status, status.offset_rtt, notApplicable)
 			// at this point, we've guessed all the offsets we need,
 			// set the status to "stateReady"
 			return setReadyState(mp, status)
@@ -624,6 +621,10 @@ func (e *eventGenerator) Generate(status *tracerStatus, expected *fieldValues) e
 	return err
 }
 
+func (e *eventGenerator) populateUDPExpectedValues(expected *fieldValues) {
+
+}
+
 func (e *eventGenerator) Close() {
 	if e.conn != nil {
 		e.conn.Close()
@@ -684,10 +685,13 @@ func tcpGetInfo(conn net.Conn) (*syscall.TCPInfo, error) {
 	return &tcpInfo, nil
 }
 
-func logSuccessfulGuess(guess C.__u64, offset C.__u64) {
-	log.Debugf("Successfully guessed %v with offset of %d bytes", whatString[guess], offset)
-}
-
-func logStartGuess(guess C.__u64) {
-	log.Debugf("Started offset guessing for %v", whatString[guess])
+func logAndAdvance(status *tracerStatus, offset C.__u64, next C.__u64) {
+	guess := status.what
+	if offset != notApplicable {
+		log.Debugf("Successfully guessed %v with offset of %d bytes", whatString[guess], offset)
+	}
+	if next != notApplicable {
+		log.Debugf("Started offset guessing for %v", whatString[next])
+		status.what = next
+	}
 }

@@ -32,7 +32,8 @@ const (
 	// This probe is used for offset guessing only
 	TCPGetInfo ProbeName = "kprobe/tcp_get_info"
 
-	IPMakeSkb ProbeName = "kprobe/ip_make_skb"
+	IPMakeSkb  ProbeName = "kprobe/ip_make_skb"
+	IP6MakeSkb ProbeName = "kprobe/ip6_make_skb"
 
 	// TCPSetState traces the tcp_set_state() kernel function
 	TCPSetState ProbeName = "kprobe/tcp_set_state"

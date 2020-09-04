@@ -658,10 +658,26 @@ int kretprobe__tcp_close(struct pt_regs* ctx) {
     return 0;
 }
 
-SEC("kprobe/udp_sendmsg")
-int kprobe__udp_sendmsg(struct pt_regs* ctx) {
-    log_info("In udp sendmsg\n");
-    return 0;
+SEC("kprobe/ip6_make_skb")
+int kprobe__ip6_make_skb(struct pt_regs* ctx) {
+     struct sock* sk = (struct sock*)PT_REGS_PARM1(ctx);
+     size_t size = (size_t)PT_REGS_PARM4(ctx);
+     u64 pid_tgid = bpf_get_current_pid_tgid();
+
+     size = size - sizeof(struct udphdr);
+
+     conn_tuple_t t = {};
+     if (!read_conn_tuple(&t, sk, pid_tgid, CONN_TYPE_UDP)) {
+
+         increment_telemetry_count(udp_send_missed);
+         return 0;
+     }
+
+     log_debug("kprobe/ip6_make_skb: pid_tgid: %d, size: %d\n", pid_tgid, size);
+     handle_message(&t, size, 0);
+     increment_telemetry_count(udp_send_processed);
+
+     return 0;   return 0;
 }
 
 SEC("kprobe/ip_make_skb")
@@ -694,12 +710,9 @@ int kprobe__ip_make_skb(struct pt_regs* ctx) {
 
         t.sport = ntohs(t.sport);
         t.dport = ntohs(t.dport);
-        // increment_telemetry_count(udp_send_missed);
-        // return 0;
     }
 
-    log_debug("kprobe/udp_sendmsg: pid_tgid: %d, size: %d\n", pid_tgid, size);
-    // log_info("kprobe/udp_sendmsg: pid_tgid: %d, size: %d\n", pid_tgid, size);
+    log_debug("kprobe/ip_send_skb: pid_tgid: %d, size: %d\n", pid_tgid, size);
     handle_message(&t, size, 0);
     increment_telemetry_count(udp_send_processed);
 
