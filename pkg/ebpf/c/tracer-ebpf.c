@@ -265,7 +265,13 @@ static __always_inline __u64 offset_rtt_var() {
 static __always_inline bool is_ipv6_enabled() {
     __u64 val = 0;
     LOAD_CONSTANT("ipv6_enabled", val);
-    return val == TRACER_IPV6_ENABLED;
+    return val == ENABLED;
+}
+
+static __always_inline bool are_fl4_offsets_known() {
+    __u64 val = 0;
+    LOAD_CONSTANT("fl4_offsets", val);
+    return val == ENABLED;
 }
 
 static __always_inline __u64 offset_saddr_fl4() {
