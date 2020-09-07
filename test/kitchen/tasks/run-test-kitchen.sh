@@ -126,6 +126,10 @@ if [[ $1 == "upgrade7-test" ]]; then
   cat kitchen-azure-upgrade7-test.yml >> kitchen.yml
 fi
 
+if [[ $1 == "runtime-security-test" ]]; then
+  cat kitchen-azure-runtime-security-test.yml >> kitchen.yml
+fi
+
 bundle exec kitchen diagnose --no-instances --loader
 
 rm -rf cookbooks

@@ -1765,6 +1765,12 @@ deploy_windows_testing-a7:
   script:
     - bash -l tasks/run-test-kitchen.sh upgrade7-test $AGENT_MAJOR_VERSION
 
+.kitchen_test_runtime_security:
+  script:
+    - inv -e system-probe.build --bundle-ebpf --incremental-build -no-with-bcc
+    - inv -e security-agent.functional-tests --build-tags=ebpf_bindata --output=test/kitchen/site-cookbooks/dd-agent-runtime-security-check/files/testsuite
+    - bash -l tasks/run-test-kitchen.sh runtime-security-test $AGENT_MAJOR_VERSION
+
 .kitchen_test_windows_installer:
   before_script: # Override kitchen_os_windows default with a smaller set of TEST_PLATFORMS
     - if [ $AGENT_MAJOR_VERSION == "7" ]; then export WINDOWS_TESTING_S3_BUCKET=$WINDOWS_TESTING_S3_BUCKET_A7; else export WINDOWS_TESTING_S3_BUCKET=$WINDOWS_TESTING_S3_BUCKET_A6; fi
@@ -1864,6 +1870,12 @@ deploy_windows_testing-a7:
   extends:
     - .kitchen_test_upgrade7
     - .kitchen_datadog_iot_agent_flavor
+    - .kitchen_azure_location_north_central_us
+
+.kitchen_test_runtime_security_agent:
+  extends:
+    - .kitchen_test_runtime_security
+    - .kitchen_datadog_agent_flavor
     - .kitchen_azure_location_north_central_us
 
 .kitchen_test_windows_installer_agent:
@@ -2080,6 +2092,12 @@ kitchen_centos_upgrade7_iot_agent-a7:
     - .kitchen_scenario_centos_a7
     - .kitchen_test_upgrade7_iot_agent
 
+kitchen_centos_runtime_security:
+  allow_failure: false
+  extends:
+    - .kitchen_os_centos
+    - .kitchen_test_runtime_security_agent
+
 # Ubuntu kitchen tests
 # Could fail if we encounter the issue with apt locks/azure agent, but should be investigated if that's the case
 
@@ -2159,6 +2177,12 @@ kitchen_ubuntu_upgrade7_iot_agent-a7:
     - .kitchen_scenario_ubuntu_a7
     - .kitchen_test_upgrade7_iot_agent
 
+kitchen_ubuntu_runtime_security:
+  allow_failure: false
+  extends:
+    - .kitchen_os_ubuntu
+    - .kitchen_test_runtime_security_agent
+
 # SUSE kitchen tests
 
 kitchen_suse_install_script_agent-a6:
@@ -2236,6 +2260,12 @@ kitchen_suse_upgrade7_iot_agent-a7:
   extends:
     - .kitchen_scenario_suse_a7
     - .kitchen_test_upgrade7_iot_agent
+
+kitchen_suse_runtime_security:
+  allow_failure: false
+  extends:
+    - .kitchen_os_suse
+    - .kitchen_test_runtime_security_agent
 
 # Debian kitchen tests
 # Could fail if we encounter the issue with apt locks/azure agent, but should be investigated if that's the case
@@ -2315,6 +2345,12 @@ kitchen_debian_upgrade7_iot_agent-a7:
   extends:
     - .kitchen_scenario_debian_a7
     - .kitchen_test_upgrade7_iot_agent
+
+kitchen_debian_runtime_security:
+  allow_failure: false
+  extends:
+    - .kitchen_os_debian
+    - .kitchen_test_runtime_security_agent
 
 .kitchen_cleanup_s3_common: &kitchen_cleanup_s3_common
   stage: testkitchen_cleanup
